@@ -175,6 +175,9 @@ class Vehicle(models.Model):
         return f"{self.model.vendor} {self.model.model} {self.colour}"
     
     def save(self, created_by=None, *args, **kwargs):
+        owned_vehicles = Vehicle.objects.filter(owner=self.owner).exclude(status=VehicleStatus.REMOVED)
+        if owned_vehicles:
+            raise Exception('Another Vehicle Is Already Registered For This Owner')
         self.date_created = timezone.now()
         if not created_by:
             created_by = User.objects.get(pk=1)
@@ -235,6 +238,15 @@ class Contract(models.Model):
         return f"{self}" # TODO: Complete this
     
     def save(self, created_by=None, *args, **kwargs):
+        vehicle_contracts = Contract.objects.filter(vehicle=self.vehicle)
+        if len(vehicle_contracts) == self.vehicle.model.capacity:
+            raise Exception('Vehicle Cannot Have Contracts More Than Its Capacity')
+        total_share = self.fuel_share + self.maintenance_share
+        if total_share > 100:
+            raise Exception('Total Share Cannot Exceed Rs. 100')
+        companion_contracts = Contract.objects.filter(companion=self.companion)
+        if len(companion_contracts) > 0:
+            raise Exception('One Companion Cannot Have Multiple Contracts')
         self.date_created = timezone.now()
         if not created_by:
             created_by = User.objects.get(pk=1)
@@ -242,6 +254,9 @@ class Contract(models.Model):
         super().save()
     
     def update(self, updated_by=None, *args, **kwargs):
+        total_share = self.fuel_share + self.maintenance_share
+        if total_share > 100:
+            raise Exception('Total Share Cannot Exceed Rs. 100')
         self.date_updated = timezone.now()
         if (not updated_by):
             updated_by = User.objects.get(pk=1)

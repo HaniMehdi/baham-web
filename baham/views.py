@@ -1,3 +1,4 @@
+import base64
 import json
 from django.http import HttpResponse, HttpResponseRedirect, HttpResponseBadRequest, JsonResponse, QueryDict
 from django.template import loader
@@ -8,7 +9,7 @@ from django.db.models import Q
 from django.middleware.csrf import get_token
 
 from baham.enum_types import VehicleStatus, VehicleType
-from baham.models import Vehicle, VehicleModel, validate_colour
+from baham.models import Vehicle, VehicleModel, validate_colour, UserProfile
 
 
 # Create your views here.
@@ -157,12 +158,28 @@ def update_vehicle(request):
 #############
 ### REST ####
 #############
+def basic_auth(request):
+    auth_header = request.META['HTTP_AUTHORIZATION']
+    _, encoded_credentials = auth_header.split(' ')
+    credentials = base64.b64decode(encoded_credentials).decode('utf-8')
+    username, password = credentials.split(':')
+    user = User.objects.filter(username=username).first()
+    if not user:
+        return JsonResponse({'error' : 'User Does Not Exist'}, status=401)
+    return user.check_password(password)
+
+
 def get_csrf_token(request):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
     csrf_token = get_token(request)
-    return JsonResponse({'csrf_token': csrf_token})
+    return JsonResponse({'csrf_token' : csrf_token})
+    
 
 
 def get_all_vehicle_models(request):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
     if request.method == 'GET':
         vehicle_models = VehicleModel.objects.all()
         data = []
@@ -261,3 +278,159 @@ def delete_vehicle_model(request, uuid):
         return JsonResponse(response_data, status=200)
     else:
         return JsonResponse({'error': 'Invalid endpoint or method type'}, status=400)
+    
+
+def get_all_user_profiles(request):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
+    if request.method == 'GET':
+        user_profiles = UserProfile.objects.all()
+        data = []
+        for user in user_profiles:
+            data.append({
+                'uuid': user.uuid,
+                'username': user.user.username,
+                'email': user.user.email,
+                'birthdate': user.birthdate,
+                'gender': user.gender,
+                'type': user.type,
+                'primary_contact': user.primary_contact,
+                'alternate_contact': user.alternate_contact,
+                'address' : user.address,
+                'landmark': user.landmark,
+                'town': user.town,
+                'bio': user.bio        
+            })
+        return JsonResponse({'results': data})
+    else:
+        return JsonResponse({'error': 'Invalid endpoint or method type'}, status=400)
+    
+
+def get_user_profile(request, uuid):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
+    if request.method == 'GET':
+        user = UserProfile.objects.filter(uuid=uuid).first()
+        data = {
+            'uuid': user.uuid,
+                'username': user.user.username,
+                'email': user.user.email,
+                'birthdate': user.birthdate,
+                'gender': user.gender,
+                'type': user.type,
+                'primary_contact': user.primary_contact,
+                'alternate_contact': user.alternate_contact,
+                'address' : user.address,
+                'landmark': user.landmark,
+                'town': user.town,
+                'bio': user.bio     
+        }
+        return JsonResponse({'results': data})
+    else:
+        return JsonResponse({'error': 'Invalid endpoint or method type'}, status=400)
+    
+
+def create_user_profile(request):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
+    if request.method == 'POST':
+        _username = request.POST.get('username')
+        _email = request.POST.get('email')
+        _password = request.POST.get('password')
+        _repassword = request.POST.get('repassword')
+        if _username is None:
+            return JsonResponse({'error': 'Username Is Required'}, status=400)
+        user = User.objects.filter(username=_username).first()
+        if user is not None:
+            return JsonResponse({'error': 'Username Is Already Taken'}, status=400)
+        if _email is None:
+            return JsonResponse({'error': 'Email Is Required'}, status=400)
+        if _password is None or _repassword is None:
+            return JsonResponse({'error': 'Both Passwords Are Required'}, status=400)
+        if _password != _repassword:
+            return JsonResponse({'error': 'Both Passwords Do Not Match'}, status=400)
+        user = User.objects.create_superuser(username=_username, email=_email, password=_password)
+        _birthdate = request.POST.get('birthdate')
+        _gender = request.POST.get('gender')
+        _type = request.POST.get('type')
+        _primary_contact = request.POST.get('primary_contact')
+        _alternate_contact = request.POST.get('alternate_contact')
+        _address = request.POST.get('address')
+        _address_latitude = request.POST.get('address_latitude')
+        _address_longitude = request.POST.get('address_longitude')
+        _landmark = request.POST.get('landmark')
+        _town = request.POST.get('town')
+        _bio = request.POST.get('bio')
+        user_profile = UserProfile.objects.create(user=user, birthdate=_birthdate, gender=_gender, type=_type, primary_contact=_primary_contact,
+                                                 alternate_contact=_alternate_contact, address=_address, address_latitude=_address_latitude,
+                                                 address_longitude=_address_longitude, landmark=_landmark, town=_town, bio=_bio)
+        response_data = {
+            'message': 'User Profile created successfully',
+            'uuid': user_profile.uuid,
+        }
+        return JsonResponse(response_data, status=201)
+    else:
+        return JsonResponse({'error': 'Invalid endpoint or method type'}, status=400)
+    
+
+def update_user_profile(request, uuid):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
+    if request.method == 'PUT':
+        params = QueryDict(request.body)
+        _birthdate = params.get('birthdate')
+        _gender = params.get('gender')
+        _type = params.get('type')
+        _primary_contact = params.get('primary_contact')
+        _alternate_contact = params.get('alternate_contact')
+        _address = params.get('address')
+        _address_latitude = params.get('address_latitude')
+        _address_longitude = params.get('address_longitude')
+        _landmark = params.get('landmark')
+        _town = params.get('town')
+        _bio = params.get('bio')
+        user_profile = UserProfile.objects.filter(uuid=uuid).first()
+        if not user_profile:
+            response_data = {
+                'error': 'User Profile not found',
+            }
+            return JsonResponse(response_data, status=404)
+        user_profile.birthdate = _birthdate
+        user_profile.gender = _gender
+        user_profile.type = _type
+        user_profile.primary_contact = _primary_contact
+        user_profile.alternate_contact = _alternate_contact
+        user_profile.address = _address
+        user_profile.address_latitude = _address_latitude
+        user_profile.address_longitude = _address_longitude
+        user_profile.landmark = _landmark
+        user_profile.town = _town
+        user_profile.bio = _bio
+        user_profile.update()
+        response_data = {
+            'message': 'User Profile updated successfully',
+            'uuid': user_profile.uuid,
+        }
+        return JsonResponse(response_data, status=200)
+    else:
+        return JsonResponse({'error': 'Invalid endpoint or method type'}, status=400)
+    
+
+def delete_user_profile(request, uuid):
+    if not (basic_auth(request)):
+        return JsonResponse({'error': 'Password Does Not Match'}, status=401)
+    if request.method == 'DELETE':
+        user_profile = UserProfile.objects.filter(uuid=uuid).first()
+        if not user_profile:
+            response_data = {
+                'error': 'User Profile not found',
+            }
+            return JsonResponse(response_data, status=404)
+        user_profile.delete()
+        response_data = {
+            'message': 'User Profile voided successfully'
+        }
+        return JsonResponse(response_data, status=200)
+    else:
+        return JsonResponse({'error': 'Invalid endpoint or method type'}, status=400)
+    
